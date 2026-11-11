@@ -32,11 +32,23 @@ def executar_pix(usuario, dados, idempotency_key=None):
     log.info("Pix solicitado por cpf=%s dados=%s auth=%s", usuario["cpf"], dados,
              request.headers.get("Authorization") or request.cookies.get("box_token"))
 
-    # TM-03 (CWE-639 / API1:2023 BOLA): conta de origem vem do cliente
-    conta_origem = dados.get("conta_origem") or conta_do_usuario(usuario["id"])["numero"]
-    origem = db.execute("SELECT * FROM contas WHERE numero = ?", (conta_origem,)).fetchone()
-    if origem is None:
+    # TM-03: conta de origem sempre derivada do usuário autenticado
+    conta_usuario = conta_do_usuario(usuario["id"])
+
+    if conta_usuario is None:
         raise ErroPix("Conta de origem inexistente.", 404)
+
+    conta_origem = conta_usuario["numero"]
+
+    # Se o cliente informar conta_origem, ela deve pertencer ao usuário autenticado
+    conta_solicitada = dados.get("conta_origem")
+    if conta_solicitada and conta_solicitada != conta_origem:
+        raise ErroPix("Conta de origem não autorizada.", 403)
+
+    origem = db.execute(
+        "SELECT * FROM contas WHERE numero = ?",
+        (conta_origem,)
+    ).fetchone()
 
     # TM-07: float() sem tratamento — valor inválido gera exceção com stack trace
     valor = float(dados.get("valor"))

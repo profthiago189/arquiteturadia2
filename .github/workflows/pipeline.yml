@@ -1,0 +1,254 @@
+name: Core Box - Esteira DevSecOps
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+
+concurrency:
+  group: core-box-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+
+jobs:
+  # 1. Secrets - bloqueante
+  gitleaks:
+    name: "1 - Secrets | Gitleaks"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout com historico completo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 2. SAST - bloqueante
+  semgrep:
+    name: "2 - SAST | Semgrep"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar Semgrep
+        run: pip install semgrep
+
+      - name: Executar Semgrep + regras do Box
+        run: |
+          semgrep scan \
+            --config p/security-audit \
+            --config .semgrep/box-regras.yml \
+            --error \
+            --json-output=semgrep-report.json
+
+      - name: Publicar relatorio Semgrep
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-report
+          path: semgrep-report.json
+          if-no-files-found: ignore
+
+  # 3. Build + testes - bloqueante
+  tests:
+    name: "3 - Build e Testes | pytest"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Executar testes
+        run: pytest -v --junitxml=pytest-report.xml
+
+      - name: Publicar relatorio pytest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-report
+          path: pytest-report.xml
+          if-no-files-found: ignore
+
+  # 4. SCA filesystem - bloqueante em HIGH/CRITICAL com fix disponivel
+  trivy-fs:
+    name: "4 - SCA | Trivy filesystem"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy FS
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  # 5. Build/push da imagem - bloqueante
+  image:
+    name: "5 - Build e Push | Docker Buildx + GHCR"
+    runs-on: ubuntu-latest
+    needs: [gitleaks, semgrep, tests, trivy-fs]
+    outputs:
+      image: ${{ steps.vars.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login no GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Definir referencia da imagem
+        id: vars
+        shell: bash
+        run: |
+          IMAGE="${IMAGE_NAME,,}:${GITHUB_SHA}"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Build para PR
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: core-box:${{ github.sha }}
+
+      - name: Build e push
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.vars.outputs.image }}
+
+  # 6. Scan da imagem - bloqueante em HIGH/CRITICAL com fix disponivel
+  trivy-image:
+    name: "6 - Container Scan | Trivy image"
+    runs-on: ubuntu-latest
+    needs: image
+    steps:
+      - name: Login no GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Scan imagem publicada
+        if: github.event_name != 'pull_request'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.image.outputs.image }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Observacao para PR
+        if: github.event_name == 'pull_request'
+        run: echo "Scan da imagem publicada sera executado apos push; PR ja passou pelo Trivy FS."
+
+  # 7. Homologacao + DAST - informativo no Dia 02
+  dast:
+    name: "7 - Homologacao e DAST | OWASP ZAP"
+    runs-on: ubuntu-latest
+    needs: trivy-image
+    if: github.event_name != 'pull_request'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build local para homologacao
+        run: docker build -t core-box-zap:${GITHUB_SHA} .
+
+      - name: Subir aplicacao
+        run: |
+          docker run -d --rm \
+            --name core-box-zap \
+            -p 8000:8000 \
+            core-box-zap:${GITHUB_SHA}
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          docker logs core-box-zap
+          exit 1
+
+      - name: OWASP ZAP baseline
+        run: |
+          docker run --rm --network host \
+            -v "${{ github.workspace }}:/zap/wrk/:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
+            -t http://127.0.0.1:8000 \
+            -J zap-report.json \
+            -r zap-report.html || true
+
+      - name: Publicar relatorio ZAP
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: |
+            zap-report.json
+            zap-report.html
+          if-no-files-found: ignore
+
+      - name: Encerrar homologacao
+        if: always()
+        run: docker stop core-box-zap || true
+
+  # 8. Producao - use Environment 'producao' com required reviewers no GitHub
+  production:
+    name: "8 - Aprovacao e Producao"
+    runs-on: ubuntu-latest
+    needs: [image, trivy-image, dast]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    environment:
+      name: producao
+    steps:
+      - name: Gate de producao aprovado
+        run: |
+          echo "Security gates 1-6 aprovados."
+          echo "DAST executado em modo informativo."
+          echo "Imagem aprovada: ${{ needs.image.outputs.image }}"
+
+      # Substitua este passo pelo mecanismo real de deploy da equipe.
+      # Nao coloque chave SSH no repositorio.
+      - name: Deploy - placeholder seguro
+        run: |
+          echo "Configure aqui o deploy usando OIDC/SSM ou outro mecanismo aprovado."
+          echo "Nao foi realizado deploy automatico por este template."
