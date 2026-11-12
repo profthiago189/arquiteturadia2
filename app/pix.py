@@ -111,7 +111,15 @@ def executar_pix(usuario, dados, idempotency_key=None):
          datetime.datetime.now().isoformat(timespec="seconds")))
     db.commit()
     tx_id = cur.lastrowid
-    auditoria.registrar(usuario["cpf"], "PIX_ENVIADO", {"id": tx_id, "e2e": e2e, **dados})
+    auditoria.registrar(
+    usuario["id"],
+    "PIX_ENVIADO",
+    {
+        "transacao_id": tx_id,
+        "e2e": e2e,
+        "valor": valor,
+    },
+    )
     return {"id": tx_id, "e2e": e2e, "valor": valor, "comprovante": f"/comprovantes/{tx_id}"}
 
 
