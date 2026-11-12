@@ -3,6 +3,7 @@ import datetime
 import logging
 
 from flask import Blueprint, render_template, request, g, jsonify, redirect
+from decimal import Decimal, InvalidOperation
 
 from app import antifraude, auditoria, psti_client
 from app.contas import conta_do_usuario
@@ -28,6 +29,8 @@ def _limite_vigente(conta, agora=None):
 
 def executar_pix(usuario, dados, idempotency_key=None):
     db = get_db()
+    if not isinstance(dados, dict):
+        raise ErroPix("Dados inválidos.", 400)
     # TM-06: payload completo (com CPF e token) no log
     log.info(
     "Solicitação Pix recebida. usuario_id=%s",
@@ -52,10 +55,22 @@ def executar_pix(usuario, dados, idempotency_key=None):
     ).fetchone()
 
     # TM-07: float() sem tratamento — valor inválido gera exceção com stack trace
-    try:
-        valor = float(dados.get("valor"))
-    except (TypeError, ValueError):
+try:
+    valor_decimal = Decimal(str(dados.get("valor")))
+
+    if not valor_decimal.is_finite():
         raise ErroPix("Valor inválido.", 422)
+
+    if valor_decimal <= 0:
+        raise ErroPix("Valor inválido.", 422)
+
+    if valor_decimal.as_tuple().exponent < -2:
+        raise ErroPix("Valor deve ter no máximo duas casas decimais.", 422)
+
+    valor = float(valor_decimal)
+
+except (InvalidOperation, TypeError, ValueError):
+    raise ErroPix("Valor inválido.", 422)
 
     if valor <= 0:
         raise ErroPix("Valor inválido.", 422)
@@ -142,13 +157,21 @@ def pix_web():
 @bp.route("/api/v1/pix/transferencias", methods=["POST"])
 @login_obrigatorio(api=True)
 def pix_api():
+    dados = request.get_json(silent=True)
+
+    if not isinstance(dados, dict):
+        return jsonify({"erro": "Dados inválidos."}), 400
+
     try:
-        resultado = executar_pix(g.usuario, request.get_json(force=True),
-                                 request.headers.get("Idempotency-Key"))
+        resultado = executar_pix(
+            g.usuario,
+            dados,
+            request.headers.get("Idempotency-Key"),
+        )
     except ErroPix as e:
         return jsonify({"erro": e.mensagem}), e.status
-    return jsonify(resultado), 201
 
+    return jsonify(resultado), 201
 
 @bp.route("/api/v1/pix/dict/<path:chave>")
 @login_obrigatorio(api=True)
@@ -159,7 +182,14 @@ def consulta_dict(chave):
         " JOIN usuarios u ON u.id = c.usuario_id WHERE k.chave = ?", (chave,)).fetchone()
     if not row:
         return jsonify({"erro": "Chave não encontrada"}), 404
-    return jsonify(dict(row))
+    return jsonify({
+    "nome": row["nome"],
+    "cpf": (
+        row["cpf"][:3] + ".***.***-" + row["cpf"][-2:]
+        if row["cpf"] and len(row["cpf"]) >= 5
+        else None
+    ),
+})
 
 
 @bp.route("/comprovantes/<int:tx_id>")
