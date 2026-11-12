@@ -9,5 +9,9 @@ bp = Blueprint("interna", __name__, url_prefix="/api/v1/interno")
 def token_info():
     token = request.args.get("token", "")
     # TM-16 (CWE-347): decodifica o JWT sem verificar a assinatura
-    dados = jwt.decode(token, options={"verify_signature": False}, algorithms=["HS256"])
+    dados = jwt.decode(
+    token,
+    current_app.config["JWT_SECRET"],
+    algorithms=["HS256"],
+    )
     return jsonify(dados)
