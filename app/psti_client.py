@@ -21,12 +21,14 @@ def enviar_pacs008(transacao):
     if os.getenv("BOX_PSTI_MODO", "simulado") == "real":
         # TM-17: validação de certificado desligada "porque o certificado de homologação é autoassinado"
         resp = requests.post(
-            current_app.config["PSTI_URL"] + "/pacs008",
-            json={**transacao, "endToEndId": e2e},
-            headers={"X-Api-Key": current_app.config["PSTI_API_KEY"]},
-            verify=True,
-            timeout=5,
-        )
+    current_app.config["PSTI_URL"] + "/pacs008",
+    json={**transacao, "endToEndId": e2e},
+    headers={
+        "X-Api-Key": current_app.config["PSTI_API_KEY"]
+    },
+    verify=True,
+    timeout=5,
+)
         resp.raise_for_status()
     log.info("pacs.008 enviado e2e=%s payload=%s", e2e, transacao)
     return e2e
