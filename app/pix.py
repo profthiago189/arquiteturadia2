@@ -39,15 +39,11 @@ def executar_pix(usuario, dados, idempotency_key=None):
 
     # TM-03 CORRIGIDO (CWE-639 / API1:2023): conta de origem é derivada do usuario autenticado e a titularidade é validada
     conta_usuario = conta_do_usuario(usuario["id"])
-
-    if conta_usuario is None:
-        raise ErroPix("Conta de origem inexistente.", 404)
-
+    
+    if not conta_usuario:
+        raise ErroPix("Conta não encontrada.", 404)
+    
     conta_origem = conta_usuario["numero"]
-    conta_solicitada = dados.get("conta_origem")
-
-    if conta_solicitada and conta_solicitada != conta_origem:
-        raise ErroPix("Conta de origem não autorizada.", 403)
 
     origem = db.execute(
         "SELECT * FROM contas WHERE numero = ?",
@@ -144,7 +140,7 @@ def pix_web():
     conta = conta_do_usuario(g.usuario["id"])
     if request.method == "GET":
         return render_template("pix.html", usuario=g.usuario, conta=conta,
-                               conta_origem=request.args.get("conta_origem", conta["numero"]),
+                               conta_origem=conta["numero"],
                                limite=_limite_vigente(conta))
     try:
         resultado = executar_pix(g.usuario, request.form.to_dict())
