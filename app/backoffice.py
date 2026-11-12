@@ -35,9 +35,22 @@ def painel():
     clientes = []
     if termo:
         # TM-29 (CWE-89): SQL montado por concatenação
-        sql = ("SELECT u.nome, u.cpf, u.senha_hash, c.numero, c.saldo FROM usuarios u "
-               "JOIN contas c ON c.usuario_id = u.id WHERE u.nome LIKE '%" + termo + "%' OR u.cpf = '" + termo + "'")
-        clientes = db.execute(sql).fetchall()
+        padrao = f"%{termo}%"
+
+        clientes = db.execute(
+            """
+            SELECT
+                u.nome,
+                u.cpf,
+                c.numero,
+                c.saldo
+            FROM usuarios u
+            JOIN contas c ON c.usuario_id = u.id
+            WHERE u.nome LIKE ?
+               OR u.cpf = ?
+            """,
+            (padrao, termo),
+        ).fetchall()
     eventos = db.execute("SELECT * FROM auditoria ORDER BY id DESC LIMIT 15").fetchall()
     total = db.execute("SELECT COUNT(*) FROM usuarios").fetchone()[0]
     return render_template("backoffice/painel.html", usuario=g.usuario, clientes=clientes,
@@ -48,11 +61,42 @@ def painel():
 @login_obrigatorio(perfil="operador")
 def ajuste():
     db = get_db()
-    conta = request.form.get("conta", "")
-    tipo = request.form.get("tipo", "credito")
-    valor = float(request.form.get("valor", "0"))
-    justificativa = request.form.get("justificativa", "")
-    # TM-10 (CWE-285): sem alçada, sem maker-checker, justificativa opcional
+    conta = request.form.get("conta", "").strip()
+    tipo = request.form.get("tipo", "credito").strip()
+    
+    justificativa = request.form.get("justificativa", "").strip()
+    
+    if not justificativa:
+        return {"erro": "Justificativa obrigatória."}, 400
+    if tipo not in ("credito", "debito"):
+        return {"erro": "Tipo de ajuste inválido."}, 400
+    try:
+        valor = float(request.form.get("valor", ""))
+    except (TypeError, ValueError):
+        return {"erro": "Valor inválido."}, 400
+
+    if valor <= 0:
+        return {"erro": "Valor inválido."}, 400
+
+    if valor > 10_000:
+        auditoria.registrar(
+            g.usuario["nome"],
+            "AJUSTE_PENDENTE",
+            {
+                "conta": conta,
+                "tipo": tipo,
+                "valor": valor,
+                "justificativa": justificativa,
+            },
+        )
+    return {
+            "status": "pendente",
+            "conta": conta,
+            "valor": valor,
+            "mensagem": "Aguardando segunda aprovação.",
+        }, 202
+    
+# TM-10 (CWE-285): sem alçada, sem maker-checker, justificativa opcional
     sinal = 1 if tipo == "credito" else -1
     db.execute("UPDATE contas SET saldo = saldo + ? WHERE numero = ?", (sinal * valor, conta))
     db.commit()

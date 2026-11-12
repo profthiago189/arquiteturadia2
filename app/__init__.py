@@ -4,9 +4,8 @@ ATENÇÃO: esta aplicação contém vulnerabilidades INTENCIONAIS para fins de
 treinamento (Projeto Integrador DevSecOps — Dia 02). Não use em produção.
 """
 import logging
-import traceback
 
-from flask import Flask, redirect, request, make_response
+from flask import Flask, redirect, jsonify, request, make_response
 
 from app import config, db
 
@@ -51,11 +50,7 @@ def create_app(test_config=None):
     @app.errorhandler(Exception)
     def erro_generico(exc):
         # TM-07 (CWE-209): devolve a stack trace completa ao cliente
-        detalhe = traceback.format_exc()
-        app.logger.error("Erro não tratado: %s", detalhe)
-        resp = make_response(
-            {"erro": str(exc), "tipo": exc.__class__.__name__, "trace": detalhe}, 500
-        )
-        return resp
+        app.logger.exception("Erro não tratado")
+        return jsonify({"erro": "Erro interno do servidor."}), 500
 
     return app

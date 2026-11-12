@@ -2,7 +2,9 @@
 import datetime
 import random
 
-from flask import Blueprint, render_template, request, make_response, jsonify, redirect
+import time
+
+from flask import Blueprint, current_app, render_template, request, make_response, jsonify, redirect
 
 from app import auditoria
 from app.db import get_db
@@ -10,17 +12,63 @@ from app.seguranca import verificar_senha, emitir_token, hash_senha
 
 bp = Blueprint("auth", __name__)
 
+# TM-01: controle temporário de tentativas de login.
+MAX_TENTATIVAS = 5
+TEMPO_BLOQUEIO = 300  # 5 minutos
+
+def _tentativas_login():
+    if "TENTATIVAS_LOGIN" not in current_app.config:
+        current_app.config["TENTATIVAS_LOGIN"] = {}
+
+
+    return current_app.config["TENTATIVAS_LOGIN"]
 
 def _autenticar(cpf, senha):
     """Retorna (usuario, erro, status_http)."""
     db = get_db()
+    agora = time.time()
+
+    tentativas_login = _tentativas_login()
+
+    tentativa = tentativas_login.get(cpf)
+
+    # TM-01 CORRIGIDO:
+    # CPF permanece bloqueado temporariamente após 5 falhas.
+    if tentativa and tentativa.get("bloqueado_ate", 0) > agora:
+        return None, "Muitas tentativas. Tente novamente mais tarde.", 429
+
     usuario = db.execute("SELECT * FROM usuarios WHERE cpf = ?", (cpf,)).fetchone()
-    # TM-23 (CWE-204): mensagens e status diferentes revelam quem é cliente
+    
+    credenciais_invalidas = (
+        usuario is None
+        or not verificar_senha(senha, usuario["senha_hash"])
+    )
+
+    if credenciais_invalidas:
+        dados = tentativas_login.setdefault(
+            cpf,
+            {"falhas": 0, "bloqueado_ate": 0},
+        )
+
+        dados["falhas"] += 1
+
+        if dados["falhas"] >= MAX_TENTATIVAS:
+            dados["bloqueado_ate"] = agora + TEMPO_BLOQUEIO
+
+        # Mantém também a correção do TM-23:
+        # mesma resposta para CPF inexistente e senha inválida.
+        return None, "CPF ou senha inválidos.", 401
+
+    tentativas_login.pop(cpf, None)
+
+    return usuario, None, 200
+
+# TM-23 (CWE-204): mensagens e status diferentes revelam quem é cliente
     if usuario is None:
-        return None, "CPF não cadastrado no Banco Box.", 404
+        return None, "CPF ou senha inválidos.", 401
     # TM-01 (CWE-307): nenhuma limitação de tentativas
     if not verificar_senha(senha, usuario["senha_hash"]):
-        return None, "Senha incorreta. Tente novamente.", 401
+        return None, "CPF ou senha inválidos.", 401
     return usuario, None, 200
 
 

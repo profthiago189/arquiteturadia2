@@ -32,16 +32,31 @@ def executar_pix(usuario, dados, idempotency_key=None):
     log.info("Pix solicitado por cpf=%s dados=%s auth=%s", usuario["cpf"], dados,
              request.headers.get("Authorization") or request.cookies.get("box_token"))
 
-    # TM-03 (CWE-639 / API1:2023 BOLA): conta de origem vem do cliente
-    conta_origem = dados.get("conta_origem") or conta_do_usuario(usuario["id"])["numero"]
-    origem = db.execute("SELECT * FROM contas WHERE numero = ?", (conta_origem,)).fetchone()
-    if origem is None:
+    # TM-03 CORRIGIDO (CWE-639 / API1:2023): conta de origem é derivada do usuario autenticado e a titularidade é validada
+    conta_usuario = conta_do_usuario(usuario["id"])
+
+    if conta_usuario is None:
         raise ErroPix("Conta de origem inexistente.", 404)
 
+    conta_origem = conta_usuario["numero"]
+    conta_solicitada = dados.get("conta_origem")
+
+    if conta_solicitada and conta_solicitada != conta_origem:
+        raise ErroPix("Conta de origem não autorizada.", 403)
+
+    origem = db.execute(
+        "SELECT * FROM contas WHERE numero = ?",
+        (conta_origem,),
+    ).fetchone()
+
     # TM-07: float() sem tratamento — valor inválido gera exceção com stack trace
-    valor = float(dados.get("valor"))
+    try:
+        valor = float(dados.get("valor"))
+    except (TypeError, ValueError):
+        raise ErroPix("Valor inválido.", 422)
+
     if valor <= 0:
-        raise ErroPix("Valor inválido.")
+        raise ErroPix("Valor inválido.", 422)
 
     chave = (dados.get("chave") or "").strip()
     destino_num = db.execute("SELECT conta_numero FROM chaves_pix WHERE chave = ?", (chave,)).fetchone()
@@ -50,9 +65,13 @@ def executar_pix(usuario, dados, idempotency_key=None):
     destino = db.execute("SELECT * FROM contas WHERE numero = ?", (destino_num[0],)).fetchone()
 
     # TM-04 (CWE-602): limite pode ser ignorado por parâmetro enviado pelo cliente
-    override = str(dados.get("limite_override", "")).lower() in ("1", "true", "sim")
-    if not override and valor > _limite_vigente(origem):
-        raise ErroPix(f"Valor acima do seu limite atual de R$ {_limite_vigente(origem):.2f}.")
+    limite = _limite_vigente(origem)
+
+    if valor > limite:
+        raise ErroPix(
+            f"Valor acima do seu limite atual de R$ {limite:.2f}.",
+            422,
+        )
 
     if not antifraude.avaliar({"valor": valor, "descricao": dados.get("descricao"), "cpf": usuario["cpf"]}):
         raise ErroPix("Transação não autorizada pela análise de segurança.", 403)
@@ -61,6 +80,25 @@ def executar_pix(usuario, dados, idempotency_key=None):
         raise ErroPix("Saldo insuficiente.")
 
     # TM-20 (CWE-362): sem idempotência e sem controle de concorrência — Idempotency-Key ignorada
+    if idempotency_key:
+        existente = db.execute(
+            """
+            SELECT id, e2e, valor
+            FROM transacoes
+            WHERE conta_origem = ?
+              AND idempotency_key = ?
+            """,
+            (origem["numero"], idempotency_key),
+        ).fetchone()
+
+        if existente:
+            return {
+                "id": existente["id"],
+                "e2e": existente["e2e"],
+                "valor": existente["valor"],
+                "comprovante": f"/comprovantes/{existente['id']}",
+            }
+
     db.execute("UPDATE contas SET saldo = saldo - ? WHERE numero = ?", (valor, origem["numero"]))
     db.execute("UPDATE contas SET saldo = saldo + ? WHERE numero = ?", (valor, destino["numero"]))
     e2e = psti_client.enviar_pacs008({"origem": origem["numero"], "destino": destino["numero"], "valor": valor})
@@ -115,12 +153,19 @@ def consulta_dict(chave):
 
 
 @bp.route("/comprovantes/<int:tx_id>")
+@login_obrigatorio()
 def comprovante(tx_id):
     # TM-08: comprovante público, sem autenticação, ID sequencial, CPF completo
     db = get_db()
     tx = db.execute("SELECT * FROM transacoes WHERE id = ?", (tx_id,)).fetchone()
     if tx is None:
         return render_template("comprovante.html", tx=None), 404
+        
+    conta_usuario = conta_do_usuario(g.usuario["id"])
+
+    if conta_usuario is None or tx["conta_origem"] != conta_usuario["numero"]:
+        return render_template("comprovante.html", tx=None), 404
+
     def titular(numero):
         return db.execute("SELECT u.nome, u.cpf, c.agencia, c.numero FROM contas c JOIN usuarios u"
                           " ON u.id = c.usuario_id WHERE c.numero = ?", (numero,)).fetchone()
