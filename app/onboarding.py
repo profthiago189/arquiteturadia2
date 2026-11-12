@@ -3,7 +3,14 @@ from werkzeug.utils import secure_filename
 import uuid
 import os
 
-from flask import Blueprint, render_template, request, current_app, Response
+from flask import (
+    Blueprint,
+    render_template,
+    request,
+    current_app,
+    Response,
+    url_for
+)
 
 from app import auditoria
 
@@ -40,7 +47,7 @@ def abrir_conta():
             nome_seguro
         )
         arq.save(destino)
-        salvos.append("/uploads/" + arq.filename)
+        salvos.append(nome_seguro)
     auditoria.registrar(cpf, "KYC_UPLOAD", {"cpf": cpf, "arquivos": salvos})
     return render_template("abrir_conta.html", enviados=salvos)
 
