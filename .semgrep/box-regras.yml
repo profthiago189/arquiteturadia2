@@ -1,40 +1,83 @@
 rules:
   # TM-03 - BOLA / conta_origem controlada pelo cliente
   - id: box-tm03-conta-origem-cliente
-    languages:
-      - python
+    languages: [python]
     severity: ERROR
     message: >
-      TM-03: conta_origem não deve ser obtida diretamente de dados
-      controlados pelo cliente.
+      TM-03 (BOLA / CWE-639): conta_origem não deve ser obtida diretamente de dados
+      controlados pelo cliente. Utilize o identificador da conta associada à sessão/token autenticado.
     metadata:
       threat_model: TM-03
-      cwe: CWE-639
-    patterns:
-      - pattern: $DADOS.get("conta_origem")
+      cwe: "CWE-639"
+      owasp: "API1:2023"
+    pattern-either:
+      # Captura .get("conta_origem") com ou sem valor default, em qualquer dict/payload
+      - pattern: $DADOS.get("conta_origem", ...)
+      # Captura acesso direto por chave: dados["conta_origem"]
+      - pattern: $DADOS["conta_origem"]
+      # Captura atributo de schema/DTO (ex: Pydantic no FastAPI: payload.conta_origem)
+      - pattern: $PAYLOAD.conta_origem
+    pattern-not-inside:
+      # Evita falso positivo quando o sistema lê a conta de um objeto de sessão/usuário autenticado
+      - pattern: current_user.$ATTR
+      - pattern: sessao.$ATTR
 
-  # TM-04 - bypass do limite Pix
+  # TM-04 - Bypass do limite Pix
   - id: box-tm04-limite-override
-    languages:
-      - python
+    languages: [python]
     severity: ERROR
     message: >
-      TM-04: limite_override enviado pelo cliente não deve controlar
-      a autorização de uma transação Pix.
+      TM-04 (CWE-285): limite_override enviado pelo cliente não deve controlar
+      a autorização ou validação de uma transação Pix.
     metadata:
       threat_model: TM-04
-    patterns:
+      cwe: "CWE-285"
+      owasp: "API5:2023"
+    pattern-either:
+      # Funciona tanto para request.json.get(...) quanto para payload.get(...) já extraído
       - pattern: $DADOS.get("limite_override", ...)
+      - pattern: $DADOS["limite_override"]
+      # Captura atributos em models/schemas (ex: FastAPI/Pydantic ou dataclasses)
+      - pattern: $PAYLOAD.limite_override
 
-  # TM-06 - dados sensiveis em logs
+  # TM-06 - Dados sensíveis em logs (usando Taint Mode para precisão cirúrgica)
   - id: box-tm06-authorization-log
-    languages:
-      - python
+    mode: taint
+    languages: [python]
     severity: ERROR
     message: >
-      TM-06: não registrar Authorization ou token de autenticação em logs.
+      TM-06 (CWE-532): não registrar cabeçalho Authorization, tokens ou credenciais
+      em logs ou saídas padrão.
     metadata:
       threat_model: TM-06
-    pattern-either:
-      - pattern: $LOG.$METHOD(..., $REQ.headers.get("Authorization"), ...)
-      - pattern: $LOG.$METHOD(..., $TOKEN, ...)
+      cwe: "CWE-532"
+      owasp: "API8:2023"
+    pattern-sources:
+      # Origem 1: Leitura explícita do header Authorization (Flask, FastAPI, Django, requests)
+      - pattern: $HEADERS.get("Authorization", ...)
+      - pattern: $HEADERS.get("authorization", ...)
+      - pattern: $HEADERS["Authorization"]
+      - pattern: $HEADERS["authorization"]
+      # Origem 2: Qualquer variável explicitamente nomeada como token, auth_header, bearer, etc.
+      - patterns:
+          - pattern: $VAR
+          - metavariable-regex:
+              metavariable: $VAR
+              regex: (?i)^.*(token|authorization|auth_header|bearer|secret|api_key).*$
+    pattern-sanitizers:
+      # Se o dado passar por uma função de mascaramento/ofuscação antes de ir pro log, não gera alerta
+      - pattern: mask(...)
+      - pattern: redact(...)
+      - pattern: obfuscate(...)
+    pattern-sinks:
+      # Destino 1: Qualquer logger (logging, logger, app.logger, structlog, loguru)
+      - patterns:
+          - pattern: $LOGGER.$LEVEL(...)
+          - metavariable-regex:
+              metavariable: $LOGGER
+              regex: (?i)^.*(log|logger|logging)$
+          - metavariable-regex:
+              metavariable: $LEVEL
+              regex: (?i)^(debug|info|warning|warn|error|critical|exception|log)$
+      # Destino 2: Saída padrão
+      - pattern: print(...)
