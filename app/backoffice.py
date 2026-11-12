@@ -23,7 +23,14 @@ def login():
     if not u or not verificar_senha(request.form.get("senha", ""), u["senha_hash"]):
         return render_template("backoffice/login.html", erro="Credenciais inválidas"), 401
     resp = make_response(redirect("/backoffice"))
-    resp.set_cookie("box_token", emitir_token(u))
+    resp.set_cookie(
+        "box_token",
+        emitir_token(u),
+        max_age=60 * 60 * 24 * 7,
+        httponly=True,
+        secure=current_app.config.get("COOKIE_SECURE", True),
+        samesite="Lax",
+    )
     return resp
 
 
