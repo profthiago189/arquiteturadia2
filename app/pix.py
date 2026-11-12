@@ -29,7 +29,10 @@ def _limite_vigente(conta, agora=None):
 def executar_pix(usuario, dados, idempotency_key=None):
     db = get_db()
     # TM-06: payload completo (com CPF e token) no log
-    log.info("Pix solicitado por cpf=%s dados=%s auth=%s", usuario["cpf"], dados)
+    log.info(
+    "Solicitação Pix recebida. usuario_id=%s",
+    usuario["id"],
+    )
 
     # TM-03 CORRIGIDO (CWE-639 / API1:2023): conta de origem é derivada do usuario autenticado e a titularidade é validada
     conta_usuario = conta_do_usuario(usuario["id"])
