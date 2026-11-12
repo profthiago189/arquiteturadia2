@@ -22,6 +22,9 @@ class Config:
     VERSAO = _cfg["app"]["versao"]
     AMBIENTE = os.getenv("BOX_AMBIENTE", _cfg["app"]["ambiente"])
     DEBUG = True  # TM-07: debug ligado em todos os ambientes
+
+    COOKIE_SECURE = True
+    
     DATABASE = os.getenv("BOX_DATABASE", os.path.join(BASE_DIR, "box.db"))
     UPLOAD_DIR = os.getenv("BOX_UPLOAD_DIR", os.path.join(BASE_DIR, "uploads"))
 
