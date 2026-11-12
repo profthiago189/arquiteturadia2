@@ -92,7 +92,7 @@ def login():
         return render_template("login.html", erro=erro, cpf=cpf), status
     token = emitir_token(usuario)
     _vincular_dispositivo(usuario)
-    auditoria.registrar(cpf, "LOGIN_OK", {"cpf": cpf, "token": token, "ip": request.remote_addr})
+    auditoria.registrar(cpf, "LOGIN_OK", {"cpf": cpf, "ip": request.remote_addr})
     resp = make_response(redirect("/home"))
     # Cookie sem HttpOnly/Secure/SameSite (achado típico de DAST no Dia 02/03)
     resp.set_cookie("box_token", token, max_age=60 * 60 * 24 * 7)
@@ -106,7 +106,7 @@ def api_login():
     if erro:
         return jsonify({"erro": erro}), status
     token = emitir_token(usuario)
-    auditoria.registrar(usuario["cpf"], "LOGIN_API_OK", {"token": token})
+    auditoria.registrar(usuario["cpf"], "LOGIN_API_OK")
     return jsonify({"token": token, "tipo": "Bearer", "expira_em_horas": 168})
 
 
