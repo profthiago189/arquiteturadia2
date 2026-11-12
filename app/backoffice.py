@@ -2,6 +2,8 @@
 import csv
 import io
 import os
+import ipaddress
+import subprocess
 
 from flask import Blueprint, render_template, request, g, make_response, redirect, Response
 
@@ -127,7 +129,7 @@ def limpar_auditoria():
 @login_obrigatorio(perfil="operador")
 def exportar():
     # TM-12 (T6-E): exporta a base inteira com hash de senha
-    rows = get_db().execute("SELECT u.nome, u.cpf, u.celular, u.senha_hash, c.numero, c.saldo "
+    rows = get_db().execute("SELECT u.nome, u.cpf, u.celular, c.numero, c.saldo "
                             "FROM usuarios u JOIN contas c ON c.usuario_id = u.id").fetchall()
     buf = io.StringIO()
     w = csv.writer(buf)
@@ -142,7 +144,21 @@ def exportar():
 @login_obrigatorio(perfil="operador")
 def diagnostico():
     """Ferramenta "temporária" do suporte para testar conectividade com o PSTI."""
-    host = request.args.get("host", "127.0.0.1")
-    # Achado NOVO (não modelado no Dia 01): injeção de comando (CWE-78)
-    saida = os.popen("ping -c 1 " + host).read()
-    return Response(saida or "sem resposta", mimetype="text/plain")
+host = request.args.get("host", "127.0.0.1")
+
+try:
+    host_validado = str(ipaddress.ip_address(host))
+except ValueError:
+    return "Endereço IP inválido.", 400
+
+resultado = subprocess.run(
+    ["ping", "-c", "1", host_validado],
+    capture_output=True,
+    text=True,
+    timeout=5,
+    check=False,
+)
+
+saida = resultado.stdout or resultado.stderr
+
+return Response(saida, mimetype="text/plain")
