@@ -8,7 +8,7 @@
 <form method="post" action="/backoffice/auditoria/limpar" style="margin-top:10px"><button class="btn inline red">Limpar histórico de auditoria</button></form>
 <div class="muted">Não requer aprovação de um segundo operador.</div></div>
 <div class="card"><h3>Busca de clientes</h3><form><input name="q" value="{{ termo }}" placeholder="nome ou CPF"><button class="btn inline">Buscar</button></form>
-<div class="muted" style="margin:6px 0">Resultados para: {{ termo|safe }}</div>
+<div class="muted" style="margin:6px 0">Resultados para: {{ termo }}</div>
 <table><tr><th>Nome</th><th>CPF</th><th>Conta</th><th>Saldo</th><th>Senha (hash)</th></tr>
 {% for c in clientes %}<tr><td>{{ c.nome }}</td><td>{{ c.cpf }}</td><td>{{ c.numero }}</td><td>{{ '%.2f'|format(c.saldo) }}</td><td><code>{{ c.senha_hash }}</code></td></tr>{% endfor %}</table>
 <a class="btn inline sec" href="/backoffice/exportar" style="margin-top:10px">Exportar todos (CSV)</a> <span class="muted">{{ total }} registros</span>

@@ -24,7 +24,7 @@ def enviar_pacs008(transacao):
             current_app.config["PSTI_URL"] + "/pacs008",
             json={**transacao, "endToEndId": e2e},
             headers={"X-Api-Key": current_app.config["PSTI_API_KEY"]},
-            verify=False,
+            verify=True,
             timeout=5,
         )
         resp.raise_for_status()
