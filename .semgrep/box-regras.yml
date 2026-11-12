@@ -1,0 +1,40 @@
+rules:
+  # TM-03 - BOLA / conta_origem controlada pelo cliente
+  - id: box-tm03-conta-origem-cliente
+    languages:
+      - python
+    severity: ERROR
+    message: >
+      TM-03: conta_origem não deve ser obtida diretamente de dados
+      controlados pelo cliente.
+    metadata:
+      threat_model: TM-03
+      cwe: CWE-639
+    patterns:
+      - pattern: $DADOS.get("conta_origem")
+
+  # TM-04 - bypass do limite Pix
+  - id: box-tm04-limite-override
+    languages:
+      - python
+    severity: ERROR
+    message: >
+      TM-04: limite_override enviado pelo cliente não deve controlar
+      a autorização de uma transação Pix.
+    metadata:
+      threat_model: TM-04
+    patterns:
+      - pattern: $DADOS.get("limite_override", ...)
+
+  # TM-06 - dados sensiveis em logs
+  - id: box-tm06-authorization-log
+    languages:
+      - python
+    severity: ERROR
+    message: >
+      TM-06: não registrar Authorization ou token de autenticação em logs.
+    metadata:
+      threat_model: TM-06
+    pattern-either:
+      - pattern: $LOG.$METHOD(..., $REQ.headers.get("Authorization"), ...)
+      - pattern: $LOG.$METHOD(..., $TOKEN, ...)
