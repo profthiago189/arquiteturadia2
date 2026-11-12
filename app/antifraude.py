@@ -27,6 +27,13 @@ def avaliar(transacao):
         score = _consultar_score(transacao)
     except AntifraudeIndisponivel:
         # TM-32 (CWE-636): fail-open — "não podemos atrapalhar o cliente"
-        log.warning("Antifraude indisponível, aprovando transação por padrão: %s", transacao)
-        return True
+        log.warning(
+            "Antifraude indisponível, aprovando transação por padrão: %s",
+            transacao
+        )
+        log.error(
+            "Serviço antifraude indisponível. Transação não autorizada."
+        )
+
+        return False
     return score < 90
