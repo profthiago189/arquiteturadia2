@@ -51,22 +51,22 @@ def executar_pix(usuario, dados, idempotency_key=None):
     ).fetchone()
 
     # TM-07: float() sem tratamento — valor inválido gera exceção com stack trace
-try:
-    valor_decimal = Decimal(str(dados.get("valor")))
+    try:
+        valor_decimal = Decimal(str(dados.get("valor")))
 
-    if not valor_decimal.is_finite():
+        if not valor_decimal.is_finite():
+            raise ErroPix("Valor inválido.", 422)
+    
+        if valor_decimal <= 0:
+            raise ErroPix("Valor inválido.", 422)
+    
+        if valor_decimal.as_tuple().exponent < -2:
+            raise ErroPix("Valor deve ter no máximo duas casas decimais.", 422)
+    
+        valor = float(valor_decimal)
+
+    except (InvalidOperation, TypeError, ValueError):
         raise ErroPix("Valor inválido.", 422)
-
-    if valor_decimal <= 0:
-        raise ErroPix("Valor inválido.", 422)
-
-    if valor_decimal.as_tuple().exponent < -2:
-        raise ErroPix("Valor deve ter no máximo duas casas decimais.", 422)
-
-    valor = float(valor_decimal)
-
-except (InvalidOperation, TypeError, ValueError):
-    raise ErroPix("Valor inválido.", 422)
 
     if valor <= 0:
         raise ErroPix("Valor inválido.", 422)
