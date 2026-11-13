@@ -5,7 +5,7 @@ import os
 import ipaddress
 import subprocess
 
-from flask import Blueprint, current_app, render_template, request, g, make_response, redirect, Response
+from flask import Blueprint, render_template, request, g, make_response, redirect, Response, current_app
 
 from app import auditoria
 from app.db import get_db
@@ -72,9 +72,8 @@ def ajuste():
     db = get_db()
     conta = request.form.get("conta", "").strip()
     tipo = request.form.get("tipo", "credito").strip()
-    
     justificativa = request.form.get("justificativa", "").strip()
-    
+
     if not justificativa:
         return {"erro": "Justificativa obrigatória."}, 400
     if tipo not in ("credito", "debito"):
@@ -99,13 +98,13 @@ def ajuste():
             },
         )
         return {
-                "status": "pendente",
-                "conta": conta,
-                "valor": valor,
-                "mensagem": "Aguardando segunda aprovação.",
-            }, 202
-    
-# TM-10 (CWE-285): sem alçada, sem maker-checker, justificativa opcional
+            "status": "pendente",
+            "conta": conta,
+            "valor": valor,
+            "mensagem": "Aguardando segunda aprovação.",
+        }, 202
+
+    # TM-10 (CWE-285): sem alçada, sem maker-checker, justificativa opcional
     sinal = 1 if tipo == "credito" else -1
     db.execute("UPDATE contas SET saldo = saldo + ? WHERE numero = ?", (sinal * valor, conta))
     db.commit()
@@ -128,7 +127,7 @@ def limpar_auditoria():
 @bp.route("/exportar")
 @login_obrigatorio(perfil="operador")
 def exportar():
-    # TM-12 (T6-E): exporta a base inteira com hash de senha
+    # TM-12 (T6-E): exporta a base inteira sem hash de senha
     rows = get_db().execute("SELECT u.nome, u.cpf, u.celular, c.numero, c.saldo "
                             "FROM usuarios u JOIN contas c ON c.usuario_id = u.id").fetchall()
     buf = io.StringIO()
@@ -145,12 +144,12 @@ def exportar():
 def diagnostico():
     """Ferramenta "temporária" do suporte para testar conectividade com o PSTI."""
     host = request.args.get("host", "127.0.0.1")
-    
+
     try:
         host_validado = str(ipaddress.ip_address(host))
     except ValueError:
         return "Endereço IP inválido.", 400
-    
+
     resultado = subprocess.run(
         ["ping", "-c", "1", host_validado],
         capture_output=True,
@@ -158,7 +157,7 @@ def diagnostico():
         timeout=5,
         check=False,
     )
-    
+
     saida = resultado.stdout or resultado.stderr
-    
+
     return Response(saida, mimetype="text/plain")
