@@ -42,6 +42,10 @@ def executar_pix(usuario, dados, idempotency_key=None):
     
     if not conta_usuario:
         raise ErroPix("Conta não encontrada.", 404)
+
+    conta_informada = (dados.get("conta_origem") or "").strip()
+    if conta_informada and conta_informada != conta_usuario["numero"]:
+        raise ErroPix("Conta de origem não pertence ao usuário autenticado.", 403)
     
     conta_origem = conta_usuario["numero"]
 
