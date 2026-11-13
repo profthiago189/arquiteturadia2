@@ -5,7 +5,7 @@ import os
 import ipaddress
 import subprocess
 
-from flask import Blueprint, render_template, request, g, make_response, redirect, Response
+from flask import Blueprint, current_app, render_template, request, g, make_response, redirect, Response
 
 from app import auditoria
 from app.db import get_db
@@ -98,12 +98,12 @@ def ajuste():
                 "justificativa": justificativa,
             },
         )
-    return {
-            "status": "pendente",
-            "conta": conta,
-            "valor": valor,
-            "mensagem": "Aguardando segunda aprovação.",
-        }, 202
+        return {
+                "status": "pendente",
+                "conta": conta,
+                "valor": valor,
+                "mensagem": "Aguardando segunda aprovação.",
+            }, 202
     
 # TM-10 (CWE-285): sem alçada, sem maker-checker, justificativa opcional
     sinal = 1 if tipo == "credito" else -1
@@ -133,7 +133,7 @@ def exportar():
                             "FROM usuarios u JOIN contas c ON c.usuario_id = u.id").fetchall()
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["nome", "cpf", "celular", "senha_hash", "conta", "saldo"])
+    w.writerow(["nome", "cpf", "celular", "conta", "saldo"])
     for r in rows:
         w.writerow(list(r))
     return Response(buf.getvalue(), mimetype="text/csv",
@@ -144,21 +144,21 @@ def exportar():
 @login_obrigatorio(perfil="operador")
 def diagnostico():
     """Ferramenta "temporária" do suporte para testar conectividade com o PSTI."""
-host = request.args.get("host", "127.0.0.1")
-
-try:
-    host_validado = str(ipaddress.ip_address(host))
-except ValueError:
-    return "Endereço IP inválido.", 400
-
-resultado = subprocess.run(
-    ["ping", "-c", "1", host_validado],
-    capture_output=True,
-    text=True,
-    timeout=5,
-    check=False,
-)
-
-saida = resultado.stdout or resultado.stderr
-
-return Response(saida, mimetype="text/plain")
+    host = request.args.get("host", "127.0.0.1")
+    
+    try:
+        host_validado = str(ipaddress.ip_address(host))
+    except ValueError:
+        return "Endereço IP inválido.", 400
+    
+    resultado = subprocess.run(
+        ["ping", "-c", "1", host_validado],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+    
+    saida = resultado.stdout or resultado.stderr
+    
+    return Response(saida, mimetype="text/plain")
