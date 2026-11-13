@@ -159,6 +159,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: image
     steps:
+      - name: Checkout do repositorio
+        if: github.event_name != 'pull_request'
+        uses: actions/checkout@v4
+
       - name: Login no GHCR
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
