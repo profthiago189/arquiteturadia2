@@ -205,5 +205,5 @@ def comprovante(tx_id):
     def titular(numero):
         return db.execute("SELECT u.nome, u.cpf, c.agencia, c.numero FROM contas c JOIN usuarios u"
                           " ON u.id = c.usuario_id WHERE c.numero = ?", (numero,)).fetchone()
-    return render_template("comprovante.html", tx=tx, origem=titular(tx["conta_origem"]),
+    return render_template("comprovante.html", tx=tx, origem=titular(conta_usuario["numero"]),
                            destino=titular(tx["conta_destino"]), base_url=request.host_url)
