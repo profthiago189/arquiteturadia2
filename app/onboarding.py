@@ -14,19 +14,6 @@ from flask import (
 
 from app import auditoria
 
-nome_original = secure_filename(arq.filename)
-
-if not nome_original:
-    return "Nome de arquivo inválido.", 400
-
-extensao = os.path.splitext(nome_original)[1].lower()
-
-extensoes_permitidas = {".pdf", ".jpg", ".jpeg", ".png"}
-
-if extensao not in extensoes_permitidas:
-    return "Tipo de arquivo não permitido.", 400
-
-nome_seguro = f"{uuid.uuid4().hex}{extensao}"
 bp = Blueprint("onboarding", __name__)
 
 
@@ -54,7 +41,6 @@ def abrir_conta():
             return "Tipo de arquivo não permitido.", 400
 
         nome_seguro = f"{uuid.uuid4().hex}{extensao}"
-        # TM-28 (CWE-434 / CWE-22): nome original, sem validar tipo, tamanho ou caminho
         destino = os.path.join(
             current_app.config["UPLOAD_DIR"],
             nome_seguro
