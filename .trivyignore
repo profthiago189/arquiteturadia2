@@ -1,0 +1,2 @@
+# Falso positivo do SBOM da imagem base; setuptools foi atualizado/removido no Dockerfile
+CVE-2025-47273
