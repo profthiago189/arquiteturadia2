@@ -193,13 +193,13 @@ def consulta_dict(chave):
 def comprovante(tx_id):
     # TM-08: comprovante público, sem autenticação, ID sequencial, CPF completo
     db = get_db()
-    tx = db.execute("SELECT * FROM transacoes WHERE id = ?", (tx_id,)).fetchone()
-    if tx is None:
-        return render_template("comprovante.html", tx=None), 404
-        
     conta_usuario = conta_do_usuario(g.usuario["id"])
 
-    if conta_usuario is None or tx["conta_origem"] != conta_usuario["numero"]:
+    if conta_usuario is None:
+        return render_template("comprovante.html", tx=None), 404
+    
+    tx = db.execute("SELECT * FROM transacoes WHERE id = ? AND conta_origem = ?", (tx_id, conta_usuario["numero"])).fetchone()
+    if tx is None:
         return render_template("comprovante.html", tx=None), 404
 
     def titular(numero):
