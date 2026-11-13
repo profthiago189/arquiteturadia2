@@ -19,7 +19,9 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Instala dependências da aplicação
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip uninstall -y setuptools wheel && \
+    rm -rf /usr/local/lib/python*/ensurepip
 
 # Cria usuário sem privilégios de root
 RUN useradd --create-home --shell /bin/bash appuser
